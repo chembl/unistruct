@@ -12,7 +12,7 @@ except ImportError:
 
 setup(
     name='unistruct',
-    version='0.0.1',
+    version='0.0.2',
     author='Michal Nowotka',
     author_email='mnowotka@ebi.ac.uk',
     description='Set of models, commands and utilities to implement substructure and similarity search into Unichem.',
