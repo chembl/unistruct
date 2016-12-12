@@ -109,7 +109,8 @@ class Command(BaseCommand):
         source_model = get_model(self.app_name, source_model_name)
         if not source_model:
             if self.verbosity >= 1:
-                self.stderr.write("No model named {0} defined for {1} application".format(source_model_name, self.app_name))
+                self.stderr.write("No model named {0} defined for {1} application"
+                                  .format(source_model_name, self.app_name))
             return
 
         target_model_name = options.get('targetModelName')
@@ -121,7 +122,8 @@ class Command(BaseCommand):
         target_model = get_model(self.app_name, target_model_name)
         if not target_model:
             if self.verbosity >= 1:
-                self.stderr.write("No model named {0} defined for {1} application".format(target_model_name, self.app_name))
+                self.stderr.write("No model named {0} defined for {1} application"
+                                  .format(target_model_name, self.app_name))
             return
 
         if self.verbosity >= 2:

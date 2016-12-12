@@ -27,6 +27,9 @@ k = 10**3
 DEFAULT_LIMIT_SIZE = 20*M
 DEFAULT_CHUNK_SIZE = 10*k
 
+ESSENTIAL_LAYERS = 3
+INCHI_LAYER_SEPARATOR = '/'
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 
@@ -305,6 +308,28 @@ class Command(BaseCommand):
 
 # ----------------------------------------------------------------------------------------------------------------------
 
+    def convert_inchi(self, inchi_converter, pk, inchi, inchi_kwargs):
+        if not inchi:
+            return
+        mol = None
+        while True:
+            try:
+                mol = inchi_converter(inchi, **inchi_kwargs)
+            except Exception as e:
+                if self.verbosity >= 1:
+                    self.stderr.write("ERROR: error ({0}) while calculating molfile for record ({1}, {2})"
+                                      .format(e.message or str(e), pk, inchi))
+            if mol:
+                return mol
+            layers = inchi.split(INCHI_LAYER_SEPARATOR)
+            if len(layers) <= ESSENTIAL_LAYERS:
+                return
+            inchi = INCHI_LAYER_SEPARATOR.join(layers[:-1])
+            if self.verbosity >= 3:
+                self.stderr.write('Retrying compound {0} with inchi {1}'.format(pk, inchi))
+
+# ----------------------------------------------------------------------------------------------------------------------
+
     def populate(self, target_model_name, target_database, source_model_name, source_database, size, limit, offset,
                  inchi_conversion, idx, display_offset):
         from django.db import connections
@@ -333,6 +358,13 @@ class Command(BaseCommand):
             indigo_inchi_obj = indigo_inchi.IndigoInchi(indigo_obj)
             inchi_kwargs = {"inchiObj": indigo_inchi_obj}
 
+        elif inchi_conversion == 'rdkit' and self.verbosity < 1:
+            from rdkit import rdBase
+            rdBase.DisableLog('rdApp.error')
+            from rdkit import RDLogger
+            lg = RDLogger.logger()
+            lg.setLevel(RDLogger.CRITICAL)
+
         inchi_converter = inchi_converters.get(inchi_conversion)
 
         for i in range(offset, offset + limit, size):
@@ -359,14 +391,11 @@ class Command(BaseCommand):
                         if not inchi:
                             failure += 1
                             continue
-                        ctab = None
-                        try:
-                            ctab = inchi_converter(inchi, **inchi_kwargs)
-                        except Exception as e:
-                            if self.verbosity >= 1:
-                                self.stderr.write("ERROR: error ({0}) while calculating molfile for record ({1}, {2})"
-                                                  .format(e.message or str(e), pk, inchi))
+
+                        ctab = self.convert_inchi(inchi_converter, pk, inchi, inchi_kwargs)
+                        if not ctab:
                             failure += 1
+                            continue
                         target_data.append(target_model(pk=int(pk), molfile=ctab))
                         success += 1
 
@@ -401,16 +430,7 @@ class Command(BaseCommand):
 # ----------------------------------------------------------------------------------------------------------------------
 
     def execute(self, *args, **options):
-        """
-        Try to execute this command, performing model validation if
-        needed (as controlled by the attribute
-        ``self.requires_model_validation``, except if force-skipped).
-        """
 
-        # Switch to English, because django-admin.py creates database content
-        # like permissions, and those shouldn't contain any translations.
-        # But only do this if we can assume we have a working settings file,
-        # because django.utils.translation requires settings.
         saved_lang = None
         self.stdout = OutputWrapper(options.get('stdout', sys.stdout))
         self.stderr = OutputWrapper(options.get('stderr', sys.stderr), self.style.ERROR)

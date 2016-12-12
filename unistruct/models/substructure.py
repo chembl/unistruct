@@ -35,3 +35,16 @@ class UcMols(six.with_metaclass(ChemblModelMetaClass, ChemblAbstractModel)):
         managed = True
 
 # ----------------------------------------------------------------------------------------------------------------------
+
+
+class UcFingerprints(six.with_metaclass(ChemblModelMetaClass, ChemblAbstractModel)):
+
+    uci = models.OneToOneField(UcCtab, primary_key=True, db_column='molregno')
+
+
+class Meta:
+    app_label = 'unistruct'
+    managed = True
+
+
+# ----------------------------------------------------------------------------------------------------------------------
