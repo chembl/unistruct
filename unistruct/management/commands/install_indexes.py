@@ -62,8 +62,8 @@ class Command(BaseCommand):
                 {'function': 'layered_fp', 'column': 'layered', 'index': 'layered_idx', 'param': ''},
                 {'function': 'maccs_fp', 'column': 'maccs', 'index': 'maccs_idx', 'param': ''},
             ],
-            'indigo': [
-                {'function': 'Bingo.Fingerprint', 'column': 'full', 'index': None, 'param': ', full'},
+            'bingo': [
+                {'function': 'Bingo.Fingerprint', 'column': 'full', 'index': None, 'param': ", 'full'"},
             ]
         }
 
@@ -185,7 +185,7 @@ class Command(BaseCommand):
                                  'where is_valid_ctab({molfile}::cstring)'
                                  .format(**self.sql_context), {}, 'Creating binary molfile objects...')
         elif self.cartridge == 'bingo':
-            self.try_execute_sql('select distinct {pk}, bingo.CompactMolecule({molfile}, 0) {ctab} '
+            self.try_execute_sql('select distinct {pk}, bingo.CompactMolecule({molfile}, false) {ctab} '
                                  'into {mols_table} from {ctab_table} '
                                  'where bingo.CheckMolecule({molfile}) is not null'
                                  .format(**self.sql_context), {}, 'Creating binary molfile objects...')
