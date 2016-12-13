@@ -107,6 +107,11 @@ class Command(BaseCommand):
     def install_fingerprints_and_indexes(self, target_database):
 
         from django.db import connections
+        from django.db import transaction
+
+        transaction.commit_unless_managed(using=target_database)
+        transaction.enter_transaction_management(using=target_database)
+        transaction.managed(True, using=target_database)
 
         target_conn = connections[target_database]
         self.cursor = target_conn.cursor()
@@ -125,6 +130,9 @@ class Command(BaseCommand):
         self.compute_fingerprints()
         self.install_fingerprints_indexes()
         self.add_primary_key(self.sql_context['pk'], self.sql_context['fingerprints_table'])
+        
+        transaction.commit(using=target_database)
+        transaction.leave_transaction_management(using=target_database)
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -187,7 +195,7 @@ class Command(BaseCommand):
         elif self.cartridge == 'bingo':
             self.try_execute_sql('select distinct {pk}, bingo.CompactMolecule({molfile}, false) {ctab} '
                                  'into {mols_table} from {ctab_table} '
-                                 'where bingo.CheckMolecule({molfile}) is not null'
+                                 'where bingo.CheckMolecule({molfile}) is null'
                                  .format(**self.sql_context), {}, 'Creating binary molfile objects...')
 
 # ----------------------------------------------------------------------------------------------------------------------
