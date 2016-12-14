@@ -130,7 +130,7 @@ class Command(BaseCommand):
         self.compute_fingerprints()
         self.install_fingerprints_indexes()
         self.add_primary_key(self.sql_context['pk'], self.sql_context['fingerprints_table'])
-        
+
         transaction.commit(using=target_database)
         transaction.leave_transaction_management(using=target_database)
 

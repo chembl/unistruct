@@ -22,10 +22,10 @@ DEFAULT_CHUNK_SIZE = 10*k
 def populate(kwargs):
     import django.core.management
     try:
-        success, failure, records = django.core.management.call_command('populate', **kwargs)
+        success, failure, empty, records = django.core.management.call_command('populate', **kwargs)
     except:
         return
-    return success, failure, records
+    return success, failure, empty, records
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -64,6 +64,7 @@ class Command(BaseCommand):
         super(Command, self).__init__()
         self.total_success = 0
         self.total_failure = 0
+        self.total_empty = 0
         self.app_name = 'unistruct'
         self.verbosity = 0
         self.concurrency_model = None
@@ -149,6 +150,8 @@ class Command(BaseCommand):
                               .format(self.total_success, self.records_to_be_populated))
             self.stdout.write("{0} records out of {1} has failed to populate"
                               .format(self.total_failure, self.records_to_be_populated))
+            self.stdout.write("{0} records out of {1} were empty (no inchi key)"
+                              .format(self.total_empty, self.records_to_be_populated))
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -262,6 +265,7 @@ class Command(BaseCommand):
         records_to_be_populated = min(source_count - offset, limit)
         self.total_success = 0
         self.total_failure = 0
+        self.total_empty = 0
 
         if self.verbosity >= 1:
             self.stdout.write("source count is {0}, target count is {1} limit is {2}, offset is {3}, total number of "
@@ -269,7 +273,7 @@ class Command(BaseCommand):
                                                                   records_to_be_populated))
 
         if not self.concurrency_model:
-            success, failure, records = populate({'chunkSize': size,
+            success, failure, empty, records = populate({'chunkSize': size,
                                                   'targetDatabase': target_database,
                                                   'sourceDatabase': source_database,
                                                   'sourceModelName': source_model_name,
@@ -280,6 +284,7 @@ class Command(BaseCommand):
                                                   'inchiConversion': inchi_conversion})
             self.total_success += success
             self.total_failure += failure
+            self.total_empty += empty
             self.records_to_be_populated += records
             return
 
@@ -323,9 +328,10 @@ class Command(BaseCommand):
 
 # ----------------------------------------------------------------------------------------------------------------------
 
-    def callback(self, (success, failure, records)):
+    def callback(self, (success, failure, empty, records)):
         self.total_success += success
         self.total_failure += failure
+        self.total_empty += empty
         self.records_to_be_populated += records
         return
 

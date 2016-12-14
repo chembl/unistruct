@@ -108,6 +108,7 @@ class Command(BaseCommand):
         super(Command, self).__init__()
         self.total_success = 0
         self.total_failure = 0
+        self.total_empty = 0
         self.app_name = 'unistruct'
         self.verbosity = 0
         self.records_to_be_populated = 0
@@ -212,8 +213,10 @@ class Command(BaseCommand):
                               .format(self.total_success, self.records_to_be_populated))
             self.stdout.write("{0} records out of {1} has failed to populate"
                               .format(self.total_failure, self.records_to_be_populated))
+            self.stdout.write("{0} records out of {1} were empty (no inchi key)"
+                              .format(self.total_empty, self.records_to_be_populated))
 
-        return self.total_success, self.total_failure, self.records_to_be_populated
+        return self.total_success, self.total_failure, self.total_empty, self.records_to_be_populated
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -248,6 +251,7 @@ class Command(BaseCommand):
         self.records_to_be_populated = min(source_count - offset, limit)
         self.total_success = 0
         self.total_failure = 0
+        self.total_empty = 0
 
         if self.verbosity >= 2:
             self.stdout.write("source count is {0}, target count is {1} limit is {2}, offset is {3}, total number of "
@@ -287,7 +291,7 @@ class Command(BaseCommand):
                 break
             try:
                 self.populate(target_model_name, target_database, source_model_name, source_database,
-                                    size, limit, offset, inchi_conversion, idx, display_offset)
+                              size, limit, offset, inchi_conversion, idx, display_offset)
                 populated = True
             except DatabaseError as e:
                 if target_connection.vendor == 'mysql' and 'MySQL server has gone away' in str(e):
@@ -370,6 +374,7 @@ class Command(BaseCommand):
         for i in range(offset, offset + limit, size):
             success = 0
             failure = 0
+            empty = 0
             transaction.commit_unless_managed(using=target_database)
             transaction.enter_transaction_management(using=target_database)
             transaction.managed(True, using=target_database)
@@ -377,19 +382,18 @@ class Command(BaseCommand):
 
                 try:
 
-                    if i < 0:
-                        original_data = source_model.objects.using(source_database).order_by(source_pk)[:size]
-                    else:
-                        last_pk = source_model.objects.using(
-                            source_database).order_by(source_pk).only(source_pk).values_list(source_pk)[i][0]
+                    chunk_size = min(size, limit + offset - i)
 
-                        original_data = source_model.objects.using(source_database).order_by(
-                            source_pk).values_list('pk', 'standardinchi').filter(pk__gt=last_pk)[:size]
+                    last_pk = source_model.objects.using(
+                        source_database).order_by(source_pk).only(source_pk).values_list(source_pk)[i][0]
+
+                    original_data = source_model.objects.using(source_database).order_by(
+                        source_pk).values_list('pk', 'standardinchi').filter(pk__gt=last_pk)[:chunk_size]
 
                     target_data = []
                     for pk, inchi in original_data:
                         if not inchi:
-                            failure += 1
+                            empty += 1
                             continue
 
                         ctab = self.convert_inchi(inchi_converter, pk, inchi, inchi_kwargs)
@@ -423,6 +427,7 @@ class Command(BaseCommand):
 
             self.total_success += success
             self.total_failure += failure
+            self.total_empty += empty
 
         pbar.update(limit)
         pbar.finish()
