@@ -12,7 +12,7 @@ except ImportError:
 
 setup(
     name='unistruct',
-    version='0.0.3',
+    version='0.0.5',
     author='Michal Nowotka',
     author_email='mnowotka@ebi.ac.uk',
     description='Set of models, commands and utilities to implement substructure and similarity search into Unichem.',
@@ -25,7 +25,7 @@ setup(
     long_description=open('README.rst').read(),
     install_requires=[
         'Django==1.5.5',
-        'chembl_core_db>=0.8.3',
+        'chembl-core-db>=0.8.4',
         'blessings>=1.6',
         'progressbar>=2.3',
         'colorama>=0.3.7',

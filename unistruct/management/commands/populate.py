@@ -2,11 +2,12 @@ from __future__ import print_function
 
 __author__ = 'mnowotka'
 
+import os
 import sys
 from django.core.management.base import BaseCommand, OutputWrapper
 from optparse import make_option
 from blessings import Terminal
-from progressbar import ProgressBar, RotatingMarker, Bar, Percentage, ETA
+from progressbar import ProgressBar, RotatingMarker, Bar, Percentage, ETA, Counter
 from django.conf import settings
 
 
@@ -100,6 +101,8 @@ class Command(BaseCommand):
                     default=0, help='position where to display progress bar'),
         make_option('--displayOffset', dest='displayOffset',
                     default=0, help='position from top where the first progress bar will be displayed'),
+        make_option('--ignoreFile', dest='ignoreFile',
+                    default='ignore.txt', help='File with IDs of the objects to ignore during migation'),
         )
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -109,12 +112,14 @@ class Command(BaseCommand):
         self.total_success = 0
         self.total_failure = 0
         self.total_empty = 0
+        self.total_ignored = 0
         self.app_name = 'unistruct'
         self.verbosity = 0
         self.records_to_be_populated = 0
         self.display_index = 0
         self.display_offset = 0
         self.term = None
+        self.ignores = None
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -134,6 +139,28 @@ class Command(BaseCommand):
             self.stderr.write("Django is in debug mode, which causes memory leak. "
                               "Set settings.DEBUG to False and run again.")
             return
+
+        ignore_file = options.get('ignoreFile')
+        ignore_file = os.path.abspath(os.path.expanduser(ignore_file))
+        if self.verbosity >= 2:
+            self.stdout.write("The ignore file is {0}".format(str(ignore_file)))
+
+        if not (os.path.isfile(ignore_file) and os.access(ignore_file, os.R_OK)):
+            if self.verbosity >= 1:
+                self.stderr.write("File {0} is missing or not readable".format(ignore_file))
+            return
+
+        with open(ignore_file) as f:
+            try:
+                self.ignores = set([int(x.strip('\n')) for x in f.readlines()])
+            except Exception as e:
+                if self.verbosity >= 1:
+                    self.stderr.write("There was a problem with parsing file {0}, error message: {1}"
+                                      .format(ignore_file, e.message))
+                return
+            if self.verbosity >= 2:
+                self.stdout.write("Following object IDs will be ignored: {0}".format(str(self.ignores)))
+
 
         target_database = options.get('targetDatabase')
         if not target_database:
@@ -215,8 +242,11 @@ class Command(BaseCommand):
                               .format(self.total_failure, self.records_to_be_populated))
             self.stdout.write("{0} records out of {1} were empty (no inchi key)"
                               .format(self.total_empty, self.records_to_be_populated))
+            self.stdout.write("{0} records out of {1} were ignored (blacklisted)"
+                              .format(self.total_ignored, self.records_to_be_populated))
 
-        return self.total_success, self.total_failure, self.total_empty, self.records_to_be_populated
+        return self.total_success, self.total_failure, self.total_empty, self.total_ignored, \
+               self.records_to_be_populated
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -252,6 +282,7 @@ class Command(BaseCommand):
         self.total_success = 0
         self.total_failure = 0
         self.total_empty = 0
+        self.total_ignored = 0
 
         if self.verbosity >= 2:
             self.stdout.write("source count is {0}, target count is {1} limit is {2}, offset is {3}, total number of "
@@ -336,6 +367,7 @@ class Command(BaseCommand):
 
     def populate(self, target_model_name, target_database, source_model_name, source_database, size, limit, offset,
                  inchi_conversion, idx, display_offset):
+
         from django.db import connections
         from django.db import transaction
         from django.db.models import get_model
@@ -351,7 +383,7 @@ class Command(BaseCommand):
         writer = Writer(self.term, (idx, 0))
         pbar = ProgressBar(widgets=['{0} ({1}) [{2}-{3}]: '.format(target_model_name, idx - display_offset + 1,
                                                                   offset, offset + limit),
-                                    Percentage(), ' ',
+                                    Percentage(), ' (', Counter(), ') ',
                                     Bar(marker=RotatingMarker()), ' ', ETA()],
                            fd=writer, maxval=limit).start()
 
@@ -370,11 +402,13 @@ class Command(BaseCommand):
             lg.setLevel(RDLogger.CRITICAL)
 
         inchi_converter = inchi_converters.get(inchi_conversion)
+        last_pk = None
 
         for i in range(offset, offset + limit, size):
             success = 0
             failure = 0
             empty = 0
+            ignored = 0
             transaction.commit_unless_managed(using=target_database)
             transaction.enter_transaction_management(using=target_database)
             transaction.managed(True, using=target_database)
@@ -383,17 +417,30 @@ class Command(BaseCommand):
                 try:
 
                     chunk_size = min(size, limit + offset - i)
+                    original_data = None
 
-                    last_pk = source_model.objects.using(
-                        source_database).order_by(source_pk).only(source_pk).values_list(source_pk)[i][0]
+                    if not last_pk:
+                        if i:
+                            last_pk = source_model.objects.using(
+                                source_database).order_by(source_pk).only(source_pk).values_list(source_pk)[i][0]
+                        else:
+                            original_data = source_model.objects.using(source_database).order_by(
+                                source_pk).values_list('pk', 'standardinchi')[:chunk_size]
 
-                    original_data = source_model.objects.using(source_database).order_by(
-                        source_pk).values_list('pk', 'standardinchi').filter(pk__gt=last_pk)[:chunk_size]
+                    if not original_data:
+                        original_data = source_model.objects.using(source_database).order_by(
+                            source_pk).values_list('pk', 'standardinchi').filter(pk__gt=last_pk)[:chunk_size]
+
+                    last_pk = original_data[chunk_size-1][0]
 
                     target_data = []
                     for pk, inchi in original_data:
                         if not inchi:
                             empty += 1
+                            continue
+
+                        if int(pk) in self.ignores:
+                            ignored += 1
                             continue
 
                         ctab = self.convert_inchi(inchi_converter, pk, inchi, inchi_kwargs)
@@ -428,6 +475,7 @@ class Command(BaseCommand):
             self.total_success += success
             self.total_failure += failure
             self.total_empty += empty
+            self.total_ignored += ignored
 
         pbar.update(limit)
         pbar.finish()
